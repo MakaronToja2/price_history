@@ -66,6 +66,7 @@ ignore = [
 "**/tests/**" = ["S101", "ARG"]
 "**/migrations/**" = ["N806", "E501"]
 "conftest.py" = ["ARG"]
+"config/routers.py" = ["ARG002"]  # Django router protocol signatures
 
 [tool.ruff.lint.isort]
 known-first-party = [
