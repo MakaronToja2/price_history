@@ -1,0 +1,131 @@
+services:
+  db:
+    image: postgres:15-alpine
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  timescaledb:
+    image: timescale/timescaledb:latest-pg15
+    environment:
+      POSTGRES_DB: ${TIMESCALE_DB}
+      POSTGRES_USER: ${TIMESCALE_USER}
+      POSTGRES_PASSWORD: ${TIMESCALE_PASSWORD}
+    volumes:
+      - timescale_data:/var/lib/postgresql/data
+    ports:
+      - "5433:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${TIMESCALE_USER} -d ${TIMESCALE_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    command: uv run python manage.py runserver 0.0.0.0:8000
+    volumes:
+      - ./backend:/app
+      - uv_cache:/root/.cache/uv
+    ports:
+      - "8000:8000"
+    env_file:
+      - .env
+    depends_on:
+      db:
+        condition: service_healthy
+      timescaledb:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  worker-high:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    command: uv run celery -A config worker -Q wysoki_priorytet -l info -c 4 -n worker_high@%h
+    volumes:
+      - ./backend:/app
+      - uv_cache:/root/.cache/uv
+    env_file:
+      - .env
+    depends_on:
+      backend:
+        condition: service_started
+      redis:
+        condition: service_healthy
+
+  worker-low:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    command: uv run celery -A config worker -Q niski_priorytet -l info -c 2 -n worker_low@%h
+    volumes:
+      - ./backend:/app
+      - uv_cache:/root/.cache/uv
+    env_file:
+      - .env
+    depends_on:
+      backend:
+        condition: service_started
+      redis:
+        condition: service_healthy
+
+  worker-notifications:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    command: uv run celery -A config worker -Q powiadomienia -l info -c 4 -n worker_notif@%h
+    volumes:
+      - ./backend:/app
+      - uv_cache:/root/.cache/uv
+    env_file:
+      - .env
+    depends_on:
+      backend:
+        condition: service_started
+      redis:
+        condition: service_healthy
+
+  beat:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    command: uv run celery -A config beat -l info
+    volumes:
+      - ./backend:/app
+      - uv_cache:/root/.cache/uv
+    env_file:
+      - .env
+    depends_on:
+      backend:
+        condition: service_started
+      redis:
+        condition: service_healthy
+
+volumes:
+  postgres_data:
+  timescale_data:
+  uv_cache:
