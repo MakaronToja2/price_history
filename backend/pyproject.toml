@@ -106,6 +106,7 @@ module = [
     "factory.*",
     "responses.*",
     "django_filters.*",
+    "pandas.*",
 ]
 ignore_missing_imports = true
 

@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import logging
+from datetime import UTC, datetime, timedelta
+from decimal import Decimal
 
 from celery import shared_task
 from django.db.models import Min
@@ -8,17 +10,79 @@ from django.db.models import Min
 from groups.models import GrupaProduktow
 from products.models import Produkt
 
+from .repositories import HistoriaCenRepository
+from .services import (
+    VOLATILITY_WINDOW_DAYS,
+    AnomalyDetector,
+    VolatilityCalculator,
+    interval_minutes_for_volatility,
+)
+
 logger = logging.getLogger(__name__)
 
 
 @shared_task(name="analytics.tasks.update_product_cache")
 def update_product_cache(produkt_id: int) -> None:
-    """Refresh per-product analytics cache (avg_30d, std_30d, volatility).
+    """Refresh per-product analytics cache.
 
-    The heavy stats computation lands in Phase 6; this stub keeps the
-    Celery routing wired so callers can already `.delay()` it.
+    Computes the 30-day mean and stddev of the lowest prices, the
+    coefficient-of-variation-based volatility score, and from that the
+    smart-polling cadence (nastepne_sprawdzenie). Then runs anomaly
+    detection on the current price and logs hits for Phase 7 alerting
+    to pick up.
     """
-    logger.info("update_product_cache(produkt_id=%s) — stub", produkt_id)
+    try:
+        produkt = Produkt.objects.get(id=produkt_id)
+    except Produkt.DoesNotExist:
+        return
+
+    now = datetime.now(UTC)
+    repo = HistoriaCenRepository()
+    stats = repo.get_stats(
+        produkt_id=produkt.id,
+        since=now - timedelta(days=VOLATILITY_WINDOW_DAYS),
+    )
+
+    if stats["count"] > 0:
+        produkt.srednia_cena_30d = (
+            Decimal(str(stats["avg"])).quantize(Decimal("0.01"))
+            if stats["avg"] is not None
+            else None
+        )
+        produkt.odchylenie_std_30d = (
+            Decimal(str(stats["stddev"])).quantize(Decimal("0.01"))
+            if stats["stddev"] is not None
+            else None
+        )
+
+    score = VolatilityCalculator(repo).calculate(produkt_id=produkt.id, now=now)
+    produkt.wskaznik_zmiennosci = score
+    produkt.interwal_sprawdzania_min = interval_minutes_for_volatility(score)
+    produkt.nastepne_sprawdzenie = now + timedelta(minutes=produkt.interwal_sprawdzania_min)
+
+    produkt.save(
+        update_fields=[
+            "srednia_cena_30d",
+            "odchylenie_std_30d",
+            "wskaznik_zmiennosci",
+            "interwal_sprawdzania_min",
+            "nastepne_sprawdzenie",
+        ]
+    )
+
+    if produkt.aktualna_najnizsza_cena is not None:
+        anomaly = AnomalyDetector(repo).check(
+            produkt_id=produkt.id,
+            aktualna_cena=produkt.aktualna_najnizsza_cena,
+            now=now,
+        )
+        if anomaly.is_anomaly:
+            logger.info(
+                "Anomaly detected for produkt %s: z=%s, spadek=%s%%",
+                produkt.id,
+                anomaly.z_score,
+                anomaly.spadek_procent,
+            )
 
 
 @shared_task(name="analytics.tasks.update_group_cache")
