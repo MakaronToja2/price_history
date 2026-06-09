@@ -17,6 +17,7 @@ dependencies = [
     "numpy>=2.0",
     "requests>=2.32",
     "python-decouple>=3.8",
+    "playwright>=1.48",
 ]
 
 [dependency-groups]

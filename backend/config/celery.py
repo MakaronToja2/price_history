@@ -7,6 +7,7 @@ Implements the multi-queue setup described in
 import os
 
 from celery import Celery
+from celery.schedules import crontab
 from kombu import Queue
 
 os.environ.setdefault("DJANGO_SETTINGS_MODULE", "config.settings")
@@ -40,6 +41,22 @@ app.conf.task_routes = {
     "alerts.tasks.send_alert_email": {
         "queue": "powiadomienia",
         "routing_key": "powiadomienie.email",
+    },
+    "scrapers.tasks.enqueue_due_fetches": {
+        "queue": "niski_priorytet",
+        "routing_key": "niski.scheduler",
+    },
+}
+
+# Beat schedule. Smart polling: enqueue_due_fetches runs every minute and
+# uses produkt.nastepne_sprawdzenie (set by analytics.tasks.update_product_cache
+# from the volatility-derived cadence) to decide which products need a fetch.
+# A single sweep automatically respects per-product polling intervals, so we
+# don't need separate volatile/stable beats.
+app.conf.beat_schedule = {
+    "enqueue-due-fetches": {
+        "task": "scrapers.tasks.enqueue_due_fetches",
+        "schedule": crontab(minute="*"),
     },
 }
 

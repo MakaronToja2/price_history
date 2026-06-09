@@ -89,6 +89,34 @@ def fetch_product_price(produkt_id: int) -> None:
     update_product_cache.delay(produkt.id)
 
 
+@shared_task(name="scrapers.tasks.enqueue_due_fetches")
+def enqueue_due_fetches() -> int:
+    """Beat-scheduled scanner: enqueue fetch_product_price for every
+    active produkt whose nastepne_sprawdzenie is in the past.
+
+    `nastepne_sprawdzenie` is set by update_product_cache based on the
+    smart-polling cadence derived from wskaznik_zmiennosci, so one
+    periodic sweep automatically respects per-product polling intervals.
+
+    Routed to: wysoki_priorytet (Beat options.queue override).
+
+    Returns:
+        Number of products enqueued (for logging/metrics).
+    """
+    now = datetime.now(UTC)
+    due_qs = Produkt.objects.filter(
+        aktywny=True,
+        nastepne_sprawdzenie__lte=now,
+    ).values_list("id", flat=True)
+
+    count = 0
+    for produkt_id in due_qs:
+        fetch_product_price.delay(produkt_id)
+        count += 1
+    logger.info("enqueue_due_fetches: queued %s product(s)", count)
+    return count
+
+
 def _scrape_for(produkt: Produkt) -> WynikScrapowania:
     nazwa_platformy = produkt.platforma.nazwa
     if nazwa_platformy == "allegro":

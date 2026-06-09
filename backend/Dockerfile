@@ -25,6 +25,12 @@ COPY pyproject.toml ./
 COPY uv.lock* ./
 RUN uv sync --all-groups --no-install-project
 
+# Playwright browser bundle. Installed AFTER uv sync so playwright CLI exists.
+# `install-deps` brings in the chromium runtime libraries; `install chromium`
+# downloads the actual browser binary (~150MB). Adds ~400MB total to the image.
+RUN uv run playwright install-deps chromium && \
+    uv run playwright install chromium
+
 # Project source (bind-mounted in dev; baked in for prod images)
 COPY . .
 
