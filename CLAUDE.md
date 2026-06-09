@@ -51,7 +51,7 @@ Pełna dokumentacja w `docs/` (PL): api, architektura, baza-danych, scrapery, za
 | 8 | Throttling + refresh/prices/comparison/delete endpoints + drf-spectacular polish | `backend/groups/views.py` (actions), `backend/config/settings.py` |
 | 9 | React SPA: login, register, dashboard, group detail (z Recharts), alerts | `frontend/src/` |
 
-**Stan testów**: 138 backend testów zielonych, ruff clean, mypy clean (`uv run pytest && uv run ruff check . && uv run mypy users/ config/ groups/ products/ sellers/ analytics/ scrapers/ alerts/`).
+**Stan testów**: 153 backend testów zielonych, ruff clean, mypy clean (`uv run pytest && uv run ruff check . && uv run mypy users/ config/ groups/ products/ sellers/ analytics/ scrapers/ alerts/`).
 
 **Stan integracji**: Gmail SMTP zweryfikowany działa (`send_mail` zwraca 1, mail dochodzi). Allegro API czeka na akceptację.
 
@@ -63,22 +63,18 @@ Pełna dokumentacja w `docs/` (PL): api, architektura, baza-danych, scrapery, za
 
 1. **Allegro API credentials** — Jakub czeka na akceptację apki na https://apps.developer.allegro.pl/. Po dostaniu credentials wpisuje do `.env`: `ALLEGRO_CLIENT_ID`, `ALLEGRO_CLIENT_SECRET`. Potem `docker compose up -d --force-recreate backend worker-high worker-low worker-notifications beat` (`restart` NIE wczytuje ponownie `.env`!).
 
-### Niezaimplementowane
+### Zrobione od ostatniego push (commit f465722)
 
-2. **Amazon scraper Playwright** — `backend/scrapers/amazon.py` to stub rzucający `NotImplementedError`. Implementacja wymaga dodania `playwright` do `pyproject.toml`, instalacji `chromium` w Dockerfile, napisania logiki scrapowania strony produktu (cena, ASIN, sprzedawcy z "Other sellers"). Ryzyko: Amazon agresywnie blokuje boty.
+2. **Amazon scraper Playwright** — `AmazonScraper.pobierz()` ładuje stronę przez headless chromium, parsuje `#productTitle`, cenę z `.a-offscreen` w buy-boxie, sprzedawcę i `#landingImage`. Parser jest wyciągnięty jako `_parse_amazon_page` więc testy używają stored HTML fixture (brak realnego ruchu sieciowego). Tylko jedna oferta na produkt — "Other sellers" pominięte (anti-bot gate). 13 testów.
 
-3. **Celery Beat schedule** — kontener `beat` chodzi, ale `app.conf.beat_schedule` jest puste w `config/celery.py`. Trzeba dodać:
-   - `fetch_volatile_products` co 15 min (volatility > 0.6) → `wysoki_priorytet`
-   - `fetch_stable_products` co 1h (volatility < 0.4) → `niski_priorytet`
-   - `cleanup_old_data` co 24h → `niski_priorytet`
-   
-   Implementacja: nowy task `scrapers.tasks.fetch_due_products()` który robi `Produkt.objects.filter(aktywny=True, nastepne_sprawdzenie__lte=now())` i każdego enqueue'uje na `fetch_product_price`.
+3. **Celery Beat schedule** — task `scrapers.tasks.enqueue_due_fetches` co minutę skanuje `Produkt.objects.filter(aktywny=True, nastepne_sprawdzenie__lte=now)` i każdego enqueue'uje na `fetch_product_price`. Cadence per-produkt sterowany przez `nastepne_sprawdzenie` ustawiane w `update_product_cache` na podstawie volatility — więc jeden Beat zastępuje dwa z docs (`fetch_volatile_products`/`fetch_stable_products`). 4 testy.
 
 ### Nice-to-have
 
 4. **Frontend polish** — toasty zamiast `alert()` i `confirm()`, loading spinners, error boundary, mobile responsiveness przy `<sm`.
 5. **Endpointy z docs niezrobione**: `GET /api/products/{id}/prices/`, `GET /api/products/{id}/sellers/`, `GET /api/groups/{id}/stats/`, `GET /api/groups/{id}/anomalies/` — można dodać jak frontend będzie ich potrzebować.
-6. **Real end-to-end test** — gdy Allegro creds przyjdą: zarejestruj się, utwórz grupę, wklej URL Allegro, sprawdź czy worker zapisał historię, wykres w UI się pojawia, alert się wyzwala.
+6. **`cleanup_old_data` task** — wspomniany w docs, jeszcze nie napisany. Mały: usuwa wpisy z logów błędów starsze niż 30 dni.
+7. **Real end-to-end test** — gdy Allegro creds przyjdą: zarejestruj się, utwórz grupę, wklej URL Allegro, sprawdź czy worker zapisał historię, wykres w UI się pojawia, alert się wyzwala.
 
 ---
 
@@ -145,6 +141,8 @@ docker compose exec backend uv run pytest
 8. **`Decimal` jest serializowany jako float** w surowym `Response({...})` — w endpointach `prices`/`comparison` używam `str(decimal)` żeby zachować precyzję groszy.
 9. **DRF throttle nie obsługuje "5/15m"** — tylko sufiksy s/m/h/d. Login mamy `5/min` (ostrzejsze niż docs, ale ważne że throttluje).
 10. **uv venv mountuje się jako volume** — gdy zmieniasz `pyproject.toml`, zrób `docker compose exec backend uv sync --group test --group dev`. Po dodaniu zależności i restarcie kontenera czasem trzeba `--force-recreate`.
+11. **`celerybeat-schedule` file persistuje na bind-mount** — jak zmieniasz `app.conf.beat_schedule` i Beat nie wczytuje nowych entry'ów, usuń `/app/celerybeat-schedule` w kontenerze i zrestartuj Beat: `docker compose exec beat rm /app/celerybeat-schedule && docker compose restart beat`. PersistentScheduler nie merguje nowych entry'ów ze starym shelve'm.
+12. **Playwright wymaga `install-deps chromium` + `install chromium`** — Dockerfile robi to po `uv sync`. Brakuje binarki przeglądarki w cached venv jeśli postawiłeś projekt bez przebudowania obrazu — `docker compose exec backend uv run playwright install-deps chromium && docker compose exec backend uv run playwright install chromium`.
 
 ---
 
