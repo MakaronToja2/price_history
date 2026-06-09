@@ -105,6 +105,7 @@ DATABASES = {
         "PASSWORD": config("TIMESCALE_PASSWORD", default="postgres"),
         "HOST": config("TIMESCALE_HOST", default="timescaledb"),
         "PORT": config("TIMESCALE_PORT", default="5432"),
+        "TEST": {"DEPENDENCIES": []},
     },
 }
 
