@@ -24,7 +24,19 @@ app.conf.task_queues = (
 app.conf.task_default_queue = "niski_priorytet"
 app.conf.task_default_routing_key = "niski.default"
 
-# Per-task routing is added as tasks land in later phases.
-app.conf.task_routes = {}
+app.conf.task_routes = {
+    "scrapers.tasks.fetch_product_price": {
+        "queue": "wysoki_priorytet",
+        "routing_key": "wysoki.fetch",
+    },
+    "analytics.tasks.update_product_cache": {
+        "queue": "niski_priorytet",
+        "routing_key": "niski.cache",
+    },
+    "analytics.tasks.update_group_cache": {
+        "queue": "niski_priorytet",
+        "routing_key": "niski.cache",
+    },
+}
 
 app.autodiscover_tasks()
