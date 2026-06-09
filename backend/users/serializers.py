@@ -54,6 +54,6 @@ class MeSerializer(serializers.ModelSerializer):
         return obj.grupy.count()
 
     def get_liczba_aktywnych_alertow(self, obj: Any) -> int:
-        if not hasattr(obj, "alerty"):
-            return 0
-        return obj.alerty.filter(aktywny=True).count()
+        from alerts.models import Alert
+
+        return Alert.objects.filter(grupa__uzytkownik=obj, aktywny=True).count()

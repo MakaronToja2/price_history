@@ -209,6 +209,22 @@ CACHES = {
 
 
 # ---------------------------------------------------------------------------
+# Email (Gmail SMTP)
+# ---------------------------------------------------------------------------
+
+EMAIL_BACKEND = config(
+    "DJANGO_EMAIL_BACKEND",
+    default="django.core.mail.backends.smtp.EmailBackend",
+)
+EMAIL_HOST = "smtp.gmail.com"
+EMAIL_PORT = 587
+EMAIL_USE_TLS = True
+EMAIL_HOST_USER = config("GMAIL_USER", default="")
+EMAIL_HOST_PASSWORD = config("GMAIL_APP_PASSWORD", default="")
+DEFAULT_FROM_EMAIL = config("DEFAULT_FROM_EMAIL", default=EMAIL_HOST_USER or "noreply@example.com")
+
+
+# ---------------------------------------------------------------------------
 # Allegro API
 # ---------------------------------------------------------------------------
 

@@ -83,6 +83,48 @@ def update_product_cache(produkt_id: int) -> None:
                 anomaly.z_score,
                 anomaly.spadek_procent,
             )
+        _evaluate_alerts(produkt, anomaly_detected=anomaly.is_anomaly)
+
+
+def _evaluate_alerts(produkt: Produkt, *, anomaly_detected: bool) -> None:
+    """Trigger any active alerts on the produkt's grupa.
+
+    Checks the grupa's cross-platform best price (najnizsza_cena_globalna)
+    against each alert's threshold and enqueues an email when matched.
+    """
+    from alerts.models import Alert
+    from alerts.tasks import send_alert_email
+
+    grupa = produkt.grupa
+    cena = grupa.najnizsza_cena_globalna
+    if cena is None:
+        return
+
+    alerty = Alert.objects.filter(grupa=grupa, aktywny=True)
+    for alert in alerty:
+        matched = False
+
+        if alert.typ_alertu == Alert.TYP_DOCELOWY:
+            matched = alert.prog_ceny is not None and cena <= alert.prog_ceny
+
+        elif alert.typ_alertu == Alert.TYP_SPADEK_CENY:
+            if alert.prog_procent is None or produkt.srednia_cena_30d is None:
+                continue
+            srednia = produkt.srednia_cena_30d
+            if srednia > 0:
+                spadek = (srednia - cena) / srednia * Decimal("100")
+                matched = spadek >= alert.prog_procent
+
+        elif alert.typ_alertu == Alert.TYP_FLASH_SALE:
+            matched = anomaly_detected
+
+        if matched:
+            send_alert_email.delay(
+                alert.id,
+                str(cena),
+                grupa.najlepsza_platforma,
+                grupa.najlepszy_sprzedawca,
+            )
 
 
 @shared_task(name="analytics.tasks.update_group_cache")

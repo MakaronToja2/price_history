@@ -83,8 +83,10 @@ def fetch_product_price(produkt_id: int) -> None:
             ]
         )
 
+    # Run group cache first so update_product_cache (which evaluates alerts
+    # against grupa.najnizsza_cena_globalna) sees the current aggregate.
+    update_group_cache(produkt.grupa_id)
     update_product_cache.delay(produkt.id)
-    update_group_cache.delay(produkt.grupa_id)
 
 
 def _scrape_for(produkt: Produkt) -> WynikScrapowania:

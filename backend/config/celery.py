@@ -37,6 +37,10 @@ app.conf.task_routes = {
         "queue": "niski_priorytet",
         "routing_key": "niski.cache",
     },
+    "alerts.tasks.send_alert_email": {
+        "queue": "powiadomienia",
+        "routing_key": "powiadomienie.email",
+    },
 }
 
 app.autodiscover_tasks()
