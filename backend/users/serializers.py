@@ -51,11 +51,7 @@ class MeSerializer(serializers.ModelSerializer):
         read_only_fields = fields
 
     def get_liczba_grup(self, obj: Any) -> int:
-        return (
-            getattr(obj, "grupy", obj._meta.default_manager.none()).count()
-            if hasattr(obj, "grupy")
-            else 0
-        )
+        return obj.grupy.count()
 
     def get_liczba_aktywnych_alertow(self, obj: Any) -> int:
         if not hasattr(obj, "alerty"):
