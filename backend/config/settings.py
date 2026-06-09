@@ -165,6 +165,20 @@ REST_FRAMEWORK = {
         "django_filters.rest_framework.DjangoFilterBackend",
         "rest_framework.filters.SearchFilter",
     ),
+    "DEFAULT_THROTTLE_CLASSES": (
+        "rest_framework.throttling.UserRateThrottle",
+        "rest_framework.throttling.AnonRateThrottle",
+        "rest_framework.throttling.ScopedRateThrottle",
+    ),
+    # Notes: DRF only supports s/m/h/d suffixes, so the 5/15min target from
+    # docs/api/endpointy.md §8 is approximated as 5/m (a tighter window).
+    "DEFAULT_THROTTLE_RATES": {
+        "user": "1000/hour",
+        "anon": "100/hour",
+        "login": "5/min",
+        "register": "3/hour",
+        "refresh-group": "1/min",
+    },
 }
 
 
@@ -193,6 +207,18 @@ SPECTACULAR_SETTINGS = {
     "DESCRIPTION": "REST API for multi-platform price tracking (PZSI 2025)",
     "VERSION": "0.1.0",
     "SERVE_INCLUDE_SCHEMA": False,
+    "COMPONENT_SPLIT_REQUEST": True,
+    "TAGS": [
+        {"name": "auth", "description": "Rejestracja, logowanie, JWT"},
+        {"name": "groups", "description": "Grupy produktów (cross-platform)"},
+        {"name": "products", "description": "Produkty w ramach grupy"},
+        {"name": "alerts", "description": "Alerty cenowe"},
+    ],
+    "SWAGGER_UI_SETTINGS": {
+        "deepLinking": True,
+        "persistAuthorization": True,
+    },
+    "SECURITY": [{"BearerAuth": []}],
 }
 
 

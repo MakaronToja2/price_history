@@ -19,3 +19,14 @@ def _celery_eager(settings) -> None:
 @pytest.fixture(autouse=True)
 def _locmem_email(settings) -> None:
     settings.EMAIL_BACKEND = "django.core.mail.backends.locmem.EmailBackend"
+
+
+@pytest.fixture(autouse=True)
+def _reset_throttles() -> None:
+    """DRF stores throttle counters in Django's cache; clear it so per-test
+    request volumes don't trip rate limits set in settings."""
+    from django.core.cache import cache
+
+    cache.clear()
+    yield
+    cache.clear()

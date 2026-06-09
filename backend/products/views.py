@@ -65,3 +65,19 @@ class GroupProductsView(APIView):
         data = ProduktSerializer(produkt).data
         data["task_id"] = async_result.id
         return Response(data, status=status.HTTP_201_CREATED)
+
+
+class GroupProductDetailView(APIView):
+    permission_classes = (permissions.IsAuthenticated,)
+
+    def delete(self, request: Request, group_id: int, product_id: int) -> Response:
+        """Soft-delete: mark inactive so history in TimescaleDB stays intact."""
+        produkt = get_object_or_404(
+            Produkt,
+            id=product_id,
+            grupa_id=group_id,
+            grupa__uzytkownik_id=request.user.pk,
+        )
+        produkt.aktywny = False
+        produkt.save(update_fields=["aktywny"])
+        return Response(status=status.HTTP_204_NO_CONTENT)
