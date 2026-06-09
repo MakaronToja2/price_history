@@ -45,9 +45,9 @@ class User(AbstractUser):
     email = models.EmailField(unique=True)
 
     USERNAME_FIELD = "email"
-    REQUIRED_FIELDS: list[str] = []
+    REQUIRED_FIELDS: list[str] = []  # type: ignore[misc]
 
-    objects = UserManager()
+    objects = UserManager()  # type: ignore[misc,assignment]
 
     class Meta:
         db_table = "uzytkownicy"
