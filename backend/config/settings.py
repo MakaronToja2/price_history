@@ -197,6 +197,28 @@ SPECTACULAR_SETTINGS = {
 
 
 # ---------------------------------------------------------------------------
+# Cache (Redis)
+# ---------------------------------------------------------------------------
+
+CACHES = {
+    "default": {
+        "BACKEND": "django.core.cache.backends.redis.RedisCache",
+        "LOCATION": config("CACHE_URL", default="redis://redis:6379/2"),
+    },
+}
+
+
+# ---------------------------------------------------------------------------
+# Allegro API
+# ---------------------------------------------------------------------------
+
+ALLEGRO_CLIENT_ID = config("ALLEGRO_CLIENT_ID", default="")
+ALLEGRO_CLIENT_SECRET = config("ALLEGRO_CLIENT_SECRET", default="")
+ALLEGRO_API_BASE_URL = config("ALLEGRO_API_BASE_URL", default="https://api.allegro.pl")
+ALLEGRO_AUTH_URL = config("ALLEGRO_AUTH_URL", default="https://allegro.pl/auth/oauth/token")
+
+
+# ---------------------------------------------------------------------------
 # Celery
 # ---------------------------------------------------------------------------
 
