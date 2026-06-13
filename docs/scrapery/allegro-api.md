@@ -20,21 +20,46 @@ Allegro udostępnia oficjalne REST API, którego używamy do pobierania cen prod
 
 ### 2.2 Rejestracja aplikacji
 
-1. Wejdź na https://apps.developer.allegro.pl/
-2. Zaloguj się kontem Allegro
-3. **Zarejestruj nową aplikację**:
-   - Typ: aplikacja webowa lub usługa
-   - Uprawnienia: tylko `allegro:api:sale:offers:read`, `allegro:api:products:read`
-4. Otrzymaj **Client ID** i **Client Secret**
+W zależności od środowiska (patrz §2.3):
+
+| Środowisko | Panel deweloperski | Panel konta |
+|---|---|---|
+| **Sandbox** (dla developmentu/projektu) | https://apps.developer.allegro.pl.allegrosandbox.pl/ | https://allegro.pl.allegrosandbox.pl/ |
+| Production | https://apps.developer.allegro.pl/ | https://allegro.pl/ |
+
+Kroki:
+
+1. **Załóż konto** w odpowiednim panelu (sandbox = osobny ekosystem, nie korzysta z prod-konta Allegro)
+2. **Włącz 2FA** (sandbox wymaga, prod również)
+3. **Aktywuj konto** (sandbox: przez symulator PayU; wymaga uzgodnienia danych osobowych z hardkodowanymi w simulatorze)
+4. **Zarejestruj aplikację**:
+   - Typ: aplikacja własna (server-to-server)
+   - Grant: `client_credentials`
+   - Uprawnienia: `allegro:api:sale:offers:read`, `allegro:api:profile:read` (+ inne według potrzeb)
+5. Otrzymaj **Client ID** i **Client Secret**, wklej do `.env`
 
 ### 2.3 Sandbox vs Production
 
 | Środowisko | URL | Cel |
 |------------|-----|-----|
-| Sandbox | `https://api.allegro.pl.allegrosandbox.pl` | Testowanie podczas developmentu |
-| Production | `https://api.allegro.pl` | Produkcja |
+| **Sandbox** (domyślny) | `https://api.allegro.pl.allegrosandbox.pl` | Development + deployment projektu |
+| Production | `https://api.allegro.pl` | Wdrożenie produkcyjne — wymaga ręcznej weryfikacji aplikacji |
 
-**Uwaga:** Sandbox ma ograniczone dane (mniej produktów). Do testów scrapera lepiej użyć Production z niskim rate limit.
+**Wybór środowiska.** W projekcie domyślnie używamy **sandbox** (`.env.example` ma sandbox URL-e). Jest to świadoma decyzja architektoniczna spowodowana ograniczeniem Allegro w stosunku do publicznego endpointu `GET /offers/listing`:
+
+> *"Aplikacje zarejestrowane po 15.03.2021 domyślnie nie mają dostępu do tego endpointu. Aby przejść proces weryfikacji, należy skontaktować się z Allegro poprzez formularz lub przez opiekuna klienta w programie Seller Partner."*
+> — [Allegro Developer Portal](https://developer.allegro.pl/news/get-offers-listing-tylko-dla-zweryfikowanych-aplikacji-GRax4oVgrs1)
+
+W praktyce: aplikacja z `client_credentials` w środowisku produkcyjnym dostaje **HTTP 403 AccessDenied** na `GET /offers/listing` bez względu na liczbę przyznanych scope'ów. W sandboxie restrykcja **nie obowiązuje** — pełen dostęp do publicznych endpointów listingowych. Stąd całe demo + walidacja integracyjna wykonane są w środowisku sandbox.
+
+**Przełączenie na production** (po uzyskaniu weryfikacji od Allegro) sprowadza się do podmiany dwóch zmiennych w `.env`:
+
+```env
+ALLEGRO_API_BASE_URL=https://api.allegro.pl
+ALLEGRO_AUTH_URL=https://allegro.pl/auth/oauth/token
+```
+
+Kod `AllegroClient` jest całkowicie agnostyczny względem środowiska — żadne zmiany w warstwie aplikacyjnej nie są potrzebne.
 
 ---
 
@@ -123,19 +148,21 @@ class AllegroAuthClient:
 
 ### 4.1 Format URL Allegro
 
-URL produktu na Allegro może mieć kilka formatów:
+URL produktu na Allegro może mieć dwa formaty:
 
 ```
+# Oferta — pojedyncza pozycja jednego sprzedawcy, ID numeryczne na końcu slug'a
 https://allegro.pl/oferta/karta-graficzna-rtx-4080-12345678
-https://allegro.pl/oferta/12345678
-https://allegro.pl/produkt/karta-graficzna-rtx-4080-{product_id}
+
+# Produkt — abstrakcyjny rekord katalogowy, UUID na końcu slug'a
+https://allegro.pl/produkt/karta-graficzna-rtx-4080-2b3c8184-d0a2-48c8-998b-72c4e6495b0f
 ```
 
-**Uwaga:** Allegro rozróżnia **oferty** (offers) i **produkty** (products):
-- Oferta = pojedyncza pozycja jednego sprzedawcy
-- Produkt = abstrakcyjny "produkt" mający wiele ofert
+**Kluczowe:** Allegro rozróżnia **oferty** (offers) i **produkty** (products):
+- Oferta = pozycja jednego sprzedawcy, ma cenę i stock
+- Produkt = wpis katalogowy łączący wiele ofert od różnych sprzedawców
 
-Aby śledzić **wszystkich sprzedawców**, potrzebujemy **product_id** lub musimy przejść z offer_id → product_id.
+Aby śledzić **wszystkich sprzedawców**, potrzebujemy **product UUID** — endpoint `/sale/products/{id}` API Allegro przyjmuje **tylko UUID**, nie pełny slug. Slug w URL-u to ludzki filler.
 
 ### 4.2 Ekstrakcja ID
 
@@ -143,30 +170,29 @@ Aby śledzić **wszystkich sprzedawców**, potrzebujemy **product_id** lub musim
 import re
 from urllib.parse import urlparse
 
+_OFFER_RE = re.compile(r"^/oferta/(?:.*-)?(\d+)/?$")
+# Tylko UUID na końcu slug'a — endpoint /sale/products/{id} przyjmuje wyłącznie UUID.
+_PRODUCT_RE = re.compile(
+    r"^/produkt/(?:[\w-]+-)?"
+    r"([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})/?$",
+    re.IGNORECASE,
+)
+
 def extract_allegro_id(url: str) -> tuple[str, str]:
-    """
-    Extract ID from Allegro URL.
-
-    Returns:
-        Tuple (id_type, id) where id_type is 'offer' or 'product'.
-    """
+    """Returns (id_type, id) — id_type to 'offer' lub 'product'."""
     parsed = urlparse(url)
-
-    if 'allegro.pl' not in parsed.netloc:
+    if "allegro.pl" not in parsed.netloc:
         raise ValueError("Not an Allegro URL")
 
-    # Format: /oferta/{slug-with-id} or /oferta/{id}
-    offer_match = re.search(r'/oferta/(?:.*-)?(\d+)/?$', parsed.path)
-    if offer_match:
-        return ('offer', offer_match.group(1))
-
-    # Format: /produkt/{slug}
-    product_match = re.search(r'/produkt/(.+?)/?$', parsed.path)
-    if product_match:
-        return ('product', product_match.group(1))
+    if m := _OFFER_RE.match(parsed.path):
+        return ("offer", m.group(1))
+    if m := _PRODUCT_RE.match(parsed.path):
+        return ("product", m.group(1))
 
     raise ValueError(f"Cannot extract ID from URL: {url}")
 ```
+
+**Antypattern.** Pierwotna wersja regexa `^/produkt/([\w-]+)/?$` łapała cały slug razem z UUID-em (np. `karta-graficzna-rtx-4080-2b3c8184-...`). Allegro API zwracało wtedy `HTTP 404 ProductNotFound` bo nie rozpoznawało takiego identyfikatora. Aktualny regex izoluje końcowy UUID.
 
 ### 4.3 Konwersja offer → product
 
@@ -504,7 +530,28 @@ ALLEGRO_AUTH_URL=https://allegro.pl/auth/oauth/token
 
 ---
 
-## 11. Powiązane dokumenty
+## 11. Stan wdrożenia
+
+Integracja z Allegro REST API jest **zaimplementowana i wdrożona** w środowisku sandbox.
+
+**Pokrycie testowe** (`backend/scrapers/tests/`):
+
+| Suite | Liczba testów | Co pokrywa |
+|---|---|---|
+| `test_detection.py` | 21 | Ekstrakcja UUID/offer-id z URL-i `/oferta/` i `/produkt/`, walidacja nieobsługiwanych domen |
+| `test_allegro.py` | 9 | `AllegroAuthClient` (refresh tokenu, cache Redis), `AllegroClient.pobierz()`, paginacja `/offers/listing`, obsługa 401→retry, 404, mapowanie odpowiedzi |
+| `test_tasks.py` | 6 | `fetch_product_price` end-to-end: pobranie cen → zapis do TimescaleDB → aktualizacja cache produktu → trigger alertów |
+| `test_beat.py` | 4 | Smart-polling scheduler — enqueue produktów z `nastepne_sprawdzenie <= now` |
+
+Każdy test mockuje warstwę HTTP biblioteką `responses` — pełne pokrycie ścieżek sukcesu i błędów bez ruchu sieciowego.
+
+**Konfiguracja środowiska** — patrz §2.3 (sandbox jako domyślne) i §10 (zmienne `.env`). Przełączenie między sandbox a production wymaga tylko podmiany `ALLEGRO_API_BASE_URL` i `ALLEGRO_AUTH_URL` — żadnych zmian w kodzie aplikacyjnym.
+
+**Smart polling** — `interwal_sprawdzania_min` per-produkt sterowany przez `VolatilityCalculator` (CV cen 14d). Beat scheduler skanuje co minutę produkty z `nastepne_sprawdzenie <= now()` i delegate'uje fetch na kolejkę `wysoki_priorytet`. Dane volatile (CV ≥ 0.05) sprawdzane co 15 min; stabilne (CV < 0.01) co 24h.
+
+---
+
+## 12. Powiązane dokumenty
 
 - [Detekcja platformy z URL](detekcja-platformy.md)
 - [Amazon scraper](amazon-scraper.md) - alternatywne źródło

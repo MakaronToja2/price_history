@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import html
 import logging
 import re
 from decimal import Decimal, InvalidOperation
@@ -141,19 +142,28 @@ class _AmazonExtractor:
         self._buf: list[str] = []
         self._capture: str | None = None
 
-    def feed(self, html: str) -> None:
+    def feed(self, raw_html: str) -> None:
         # Title: id="productTitle"
-        if m := re.search(r'<[^>]+id="productTitle"[^>]*>([^<]+)</', html, re.IGNORECASE):
-            self.title = m.group(1)
+        if m := re.search(r'<[^>]+id="productTitle"[^>]*>([^<]+)</', raw_html, re.IGNORECASE):
+            self.title = html.unescape(m.group(1))
 
-        # Price: prefer .a-offscreen inside #corePriceDisplay_desktop_feature_div
+        # Price: prefer .a-offscreen inside #corePriceDisplay_desktop_feature_div.
+        # Real-world Amazon often renders an empty .a-offscreen in the desktop
+        # container while the real number lives in #corePrice_feature_div — skip
+        # whitespace-only matches and continue to the next pattern. HTML entities
+        # like `&nbsp;` (between thousands and hundreds: "8&nbsp;195,00zł") must
+        # be decoded before regex parsing, else only the leading digit is captured.
         for pattern in (
             r'id="corePriceDisplay_desktop_feature_div".*?class="a-offscreen"[^>]*>([^<]+)<',
             r'id="corePrice_feature_div".*?class="a-offscreen"[^>]*>([^<]+)<',
             r'class="a-offscreen"[^>]*>([^<]+)<',
         ):
-            if m := re.search(pattern, html, re.IGNORECASE | re.DOTALL):
-                self.price = m.group(1)
+            for m in re.finditer(pattern, raw_html, re.IGNORECASE | re.DOTALL):
+                candidate = html.unescape(m.group(1)).strip()
+                if candidate:
+                    self.price = candidate
+                    break
+            if self.price:
                 break
 
         # Seller name
@@ -161,10 +171,10 @@ class _AmazonExtractor:
             r'id="sellerProfileTriggerId"[^>]*>([^<]+)<',
             r'id="merchant-info"[^>]*>.*?<a[^>]*>([^<]+)<',
         ):
-            if m := re.search(pattern, html, re.IGNORECASE | re.DOTALL):
-                self.seller = m.group(1)
+            if m := re.search(pattern, raw_html, re.IGNORECASE | re.DOTALL):
+                self.seller = html.unescape(m.group(1))
                 break
 
         # Main image
-        if m := re.search(r'id="landingImage"[^>]*src="([^"]+)"', html, re.IGNORECASE):
+        if m := re.search(r'id="landingImage"[^>]*src="([^"]+)"', raw_html, re.IGNORECASE):
             self.image = m.group(1)

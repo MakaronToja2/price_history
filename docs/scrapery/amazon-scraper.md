@@ -618,7 +618,41 @@ AMAZON_SCRAPER = {
 
 ---
 
-## 12. Etyka i prawne aspekty
+## 12. Stan wdrożenia
+
+Scraper Amazon (`AmazonScraper` w `backend/scrapers/amazon.py`) jest **zaimplementowany na bazie Playwright + Chromium** i pokryty 15 testami jednostkowymi (`backend/scrapers/tests/test_amazon.py`).
+
+**Co działa**:
+- Headless Chromium + locale `pl-PL` + ustawiony User-Agent (anty-detekcja podstawowa)
+- Parsowanie tytułu z `#productTitle`
+- Parsowanie ceny z **cascade selectorów** `.a-offscreen` (preferuje `#corePriceDisplay_desktop_feature_div`, fallback `#corePrice_feature_div`, ostatecznie pierwszy `.a-offscreen` z niepustą zawartością)
+- Parsowanie sprzedawcy z `#sellerProfileTriggerId` / `#merchant-info`
+- Parsowanie obrazka z `#landingImage`
+- Dekodowanie encji HTML (`&nbsp;`, `&amp;` itp.) przed regex parsingiem
+- Walidacja typu identyfikatora (`typ_id="asin"`)
+
+**Co świadomie pominięte**:
+- "Other sellers" strona (`/gp/offer-listing/`) — blokowana przez Amazon anti-bot przy headless. Scraper zwraca tylko jedną ofertę z głównego buy-boxa. Decyzja podyktowana stabilnością (CAPTCHA byłaby trudna do obsłużenia w środowisku serwerowym).
+- Cross-marketplace (amazon.de, amazon.com) — `BASE_URL` na sztywno `amazon.pl`
+
+**Znane realne quirks** (utrwalone w testach):
+- `#corePriceDisplay_desktop_feature_div .a-offscreen` często bywa pusty/whitespace, prawdziwa cena w `#corePrice_feature_div` — parser pomija puste matche
+- Ceny w Polsce serwowane jako `8&nbsp;195,00zł` (encje HTML, nie unicode NBSP) — parser dekoduje encje przed regexem
+- `#productTitle` może wystąpić **dwukrotnie** w DOM (span + ukryte input) — selektor musi być `span#productTitle` przy bezpośrednim queryselectorze
+
+**Konfiguracja `.env`**:
+```env
+AMAZON_DOMAIN_DEFAULT=amazon.pl
+AMAZON_SCRAPER_CONCURRENCY=3
+AMAZON_RATE_LIMIT_DELAY_SECONDS=30
+AMAZON_TIMEOUT_SECONDS=30
+```
+
+**Walidacja działania** — patrz `backend/scrapers/tests/test_amazon.py::TestParser` (5 testów) oraz `::TestScraperPlaywrightWiring` (mock'owany Playwright z fixture HTML).
+
+---
+
+## 13. Etyka i prawne aspekty
 
 ### 12.1 Robots.txt
 
@@ -637,7 +671,7 @@ Scrapowanie Amazona narusza ToS. **Aplikacja nie powinna być wdrażana komercyj
 
 ---
 
-## 13. Powiązane dokumenty
+## 14. Powiązane dokumenty
 
 - [Detekcja platformy z URL](detekcja-platformy.md)
 - [Allegro API](allegro-api.md)

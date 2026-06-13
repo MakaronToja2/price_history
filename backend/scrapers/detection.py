@@ -24,7 +24,13 @@ _ALLEGRO_HOSTS = {"allegro.pl", "www.allegro.pl"}
 _AMAZON_HOSTS = {"amazon.pl", "www.amazon.pl", "amazon.com", "www.amazon.com"}
 
 _ALLEGRO_OFFER_RE = re.compile(r"^/oferta/(?:.*-)?(\d+)/?$")
-_ALLEGRO_PRODUCT_RE = re.compile(r"^/produkt/([\w-]+)/?$")
+# /produkt/<slug>-<uuid> — only the trailing UUID is the canonical product id
+# accepted by /sale/products/{id}; the slug prefix is human-readable filler.
+_ALLEGRO_PRODUCT_RE = re.compile(
+    r"^/produkt/(?:[\w-]+-)?"
+    r"([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})/?$",
+    re.IGNORECASE,
+)
 _AMAZON_ASIN_RE = re.compile(r"/(?:dp|gp/product)/([A-Z0-9]{10})(?:/|$|\?)")
 
 

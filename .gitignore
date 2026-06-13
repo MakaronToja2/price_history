@@ -3,6 +3,9 @@
 .env.local
 .env.*.local
 
+# Local dev notes — Claude Code session memory, not for repo
+CLAUDE.md
+
 # Python
 __pycache__/
 *.py[cod]

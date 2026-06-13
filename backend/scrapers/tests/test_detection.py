@@ -26,11 +26,35 @@ class TestAllegroDetection:
         assert result.identyfikator == expected_id
         assert result.typ_id == "offer"
 
-    def test_extracts_product_slug(self) -> None:
-        result = detect_platforma("https://allegro.pl/produkt/karta-graficzna-rtx-4080-super")
+    @pytest.mark.parametrize(
+        ("url", "expected_uuid"),
+        [
+            # Allegro /produkt/ URLs end with a UUID — only the UUID is a valid
+            # product identifier for /sale/products/{id}. The slug prefix is
+            # human-readable filler, useless to the API.
+            (
+                "https://allegro.pl/produkt/karta-graficzna-rtx-4080-2b3c8184-d0a2-48c8-998b-72c4e6495b0f",
+                "2b3c8184-d0a2-48c8-998b-72c4e6495b0f",
+            ),
+            (
+                "https://allegro.pl/produkt/sauna-beczka-200-x-150-1fdb9b19-552e-41ad-a35f-f32a12b2f55e/",
+                "1fdb9b19-552e-41ad-a35f-f32a12b2f55e",
+            ),
+            (
+                "https://allegro.pl/produkt/karta-graficzna-rtx-4080-2b3c8184-d0a2-48c8-998b-72c4e6495b0f?bla=1",
+                "2b3c8184-d0a2-48c8-998b-72c4e6495b0f",
+            ),
+        ],
+    )
+    def test_extracts_product_uuid(self, url: str, expected_uuid: str) -> None:
+        result = detect_platforma(url)
         assert result.platforma == "allegro"
-        assert result.identyfikator == "karta-graficzna-rtx-4080-super"
+        assert result.identyfikator == expected_uuid
         assert result.typ_id == "product"
+
+    def test_rejects_product_url_without_uuid(self) -> None:
+        with pytest.raises(UnsupportedPlatformError):
+            detect_platforma("https://allegro.pl/produkt/karta-graficzna-rtx-4080-super")
 
 
 class TestAmazonDetection:

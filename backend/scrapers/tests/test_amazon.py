@@ -74,6 +74,40 @@ class TestParser:
         with pytest.raises(AmazonScraperError):
             _parse_amazon_page(html)
 
+    def test_decodes_html_nbsp_entity_in_price(self) -> None:
+        # Real-world amazon.pl serves "8&nbsp;195,00zł" as HTML entities, not
+        # raw NBSP. Without entity decoding the price regex captures only "8".
+        # Observed live on B0GKZMFC2K (Sauna Ogrodowa QUADRO).
+        html = """
+        <html><body>
+          <span id="productTitle">Sauna QUADRO</span>
+          <div id="corePrice_feature_div">
+            <span class="a-price"><span class="a-offscreen">8&nbsp;195,00&nbsp;zł</span></span>
+          </div>
+        </body></html>
+        """
+        wynik = _parse_amazon_page(html)
+        assert wynik.oferty[0].cena == Decimal("8195.00")
+
+    def test_skips_empty_offscreen_when_real_price_exists_in_next_container(self) -> None:
+        # Real-world amazon.pl quirk (observed on B07GWBL5VW "Kind of Blue"):
+        # #corePriceDisplay_desktop_feature_div contains a whitespace-only
+        # .a-offscreen, while #corePrice_feature_div has the actual price.
+        # The parser must skip empty matches and fall through to the next pattern.
+        html = """
+        <html><body>
+          <span id="productTitle">Kind Of Blue</span>
+          <div id="corePriceDisplay_desktop_feature_div">
+            <span class="a-price"><span class="a-offscreen"> </span></span>
+          </div>
+          <div id="corePrice_feature_div">
+            <span class="a-price"><span class="a-offscreen">66,97 zł</span></span>
+          </div>
+        </body></html>
+        """
+        wynik = _parse_amazon_page(html)
+        assert wynik.oferty[0].cena == Decimal("66.97")
+
 
 class TestPriceParse:
     @pytest.mark.parametrize(
